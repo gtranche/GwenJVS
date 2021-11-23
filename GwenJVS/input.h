@@ -23,6 +23,9 @@
 #define JVS_OPCODES_SYNC		0xE0
 #define JVS_OPCODES_ESCAPE		0xD0
 
+#define S_COIN1		0x06
+#define S_COIN2		0x07
+//#define DEBUG	1
 namespace GwenJVS {
 
 // bitmask for each button
@@ -45,12 +48,14 @@ const uint16_t kJvsButtons[kNumButtons]{
 // request blocks
 const uint8_t kInputRequest[kNumNodes][3] = {
 	{ 0x20, 0x02, 0x02 },
-	{ 0x20, 0x02, 0x02 }
+//	{ 0x20, 0x02, 0x02 }
 };
 
-const uint8_t kCoinRequest[kNumNodes][3] = {
-	{ 0x21, 0x02, 0x01 },
-	{ 0x21, 0x02, 0x01 }
+const uint8_t kCoinRequest[kNumNodes][2] = {
+//	{ 0x21, 0x02, 0x01 },
+	{ 0x21, 0x02 },
+//	{ 0x21, 0x01 },
+//	{ 0x21, 0x02, 0x01 }
 };
 
 // structs for input state
@@ -82,7 +87,7 @@ typedef struct {
 	Player players[kNumPlayersPerNode];
 	Player players_previous[kNumPlayersPerNode];
 	uint8_t coin;
-
+	uint8_t coin2;
 	LARGE_INTEGER poll_previous;
 	LARGE_INTEGER poll_now;
 	LARGE_INTEGER idle_start;
@@ -108,6 +113,7 @@ private:
 public:
 	Input(HANDLE com_port, HANDLE log_file, bool log_error) : com_port_handle_(com_port), log_file_handle_(log_file), log_error_(log_error) { SetupJVS(); }
 	bool Initialize();
+	bool GetCoin();
 	bool IdleTimeout();
 	bool ReadButtons();
 	std::vector<std::vector<uint16_t>> get_players();

@@ -21,7 +21,7 @@
     <AdditionalFiles>D:\Projects\GwenJVS\Debug\GwenJVS-Debug-x86.pdb</AdditionalFiles>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <DebuggerFlavor>WindowsRemoteDebugger</DebuggerFlavor>
+    <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
     <RemoteDebuggerCommand>C:\Gamedata\GwenJVS-x86.exe</RemoteDebuggerCommand>
     <RemoteDebuggerWorkingDirectory>C:\Gamedata</RemoteDebuggerWorkingDirectory>
     <RemoteDebuggerConnection>RemoteWithoutAuthentication</RemoteDebuggerConnection>

@@ -9,6 +9,7 @@ void Input::SetupJVS() {
 	DWORD errors = NULL;
 	wchar_t ltext[256] = { 0 };
 
+
 	SecureZeroMemory(&dcb, sizeof(DCB));
 	dcb.DCBlength = sizeof(DCB);
 
@@ -45,9 +46,11 @@ bool Input::Initialize() {
 	uint8_t reset[] = { static_cast<uint8_t>(JVS_OPCODES_RESET), 0xD9 };
 	uint8_t jdata[256] = { 0 };
 	wchar_t ltext[256] = { 0 };
+	uint8_t savecoin[256] = { 0 };
 
-	// free the jkey memory if it exists
+	// free the jkey memory if it exists and save the coins 
 	if (jkey_ != nullptr) {
+		memcpy(&savecoin, &jkey_[0].coin, sizeof(uint8_t));
 		jkey_.release();
 	}
 
@@ -68,6 +71,8 @@ bool Input::Initialize() {
 		jkey_[i].frequency = jkey_[0].frequency;
 		jkey_[i].idle_start = jkey_[0].idle_start;
 		jkey_[i].idle_now = jkey_[0].idle_start;
+		memcpy(&jkey_[i].coin, &savecoin, sizeof(uint8_t));
+		//jkey_[i].coin2 = 0x00;
 
 		uint8_t set[] = { static_cast<uint8_t>(JVS_OPCODES_ADDRESS), static_cast<uint8_t>(0x01 + i) };
 
@@ -84,6 +89,54 @@ bool Input::Initialize() {
 		if (!ReadJVS(jdata, sizeof(jdata))) {
 			jkey_.release();
 			return false;
+		}
+	}
+	return true;
+}
+
+bool Input::GetCoin() {
+	uint8_t jdata[256] = { 0 };
+	wchar_t ltext[256] = { 0 };
+	std::vector<INPUT> keys;
+
+	for (auto node = 0; node < kNumNodes; ++node) {
+		INPUT ip = { 0 };
+		ip.type = INPUT_KEYBOARD;
+		ip.ki.dwFlags = KEYEVENTF_SCANCODE;
+		ip.ki.wScan = 0;
+		ip.ki.time = 0;
+		ip.ki.dwExtraInfo = 0;
+		bool key_pressed = false;
+		jkey_[node].poll_previous = jkey_[node].poll_now;
+
+		if (!WriteJVS(node + 1, kCoinRequest[node], 2))
+			return false;
+
+		Sleep(5);
+
+		if (!ReadJVS(jdata, sizeof(jdata)))
+			return false;
+
+		//if (jdata[3] != jkey_[node].coin || jdata[4] != jkey_[node].coin2)
+		if (jdata[3] != jkey_[node].coin)
+		{
+			//LogEvent(log_file_handle_, ltext, swprintf_s(ltext, sizeof(ltext) / sizeof(wchar_t), L"Un credit !\r\n"));
+			//LogEvent(log_file_handle_, ltext, swprintf_s(ltext, sizeof(ltext) / sizeof(wchar_t), L"Credit pour le JVS %02x \r\n", jdata[3]));
+			//LogEvent(log_file_handle_, ltext, swprintf_s(ltext, sizeof(ltext) / sizeof(wchar_t), L"Credit pour en memoire %02x \r\n", jkey_[node].coin));
+			memcpy(&jkey_[node].coin, &jdata[3], sizeof(uint8_t));
+			//memcpy(&jkey_[node].coin2, &jdata[4], sizeof(uint8_t));
+
+			//printf("COIN!\n");
+			ip.ki.dwFlags = KEYEVENTF_SCANCODE;
+			ip.ki.wScan = S_COIN1;
+			keys.emplace_back(ip);
+			SendInput(keys.size(), keys.data(), sizeof(INPUT));
+			Sleep(20);
+			ip.ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+			ip.ki.wScan = S_COIN1;
+			keys.emplace_back(ip);
+			SendInput(keys.size(), keys.data(), sizeof(INPUT));
+
 		}
 	}
 	return true;
@@ -126,7 +179,7 @@ bool Input::ReadJVS(uint8_t* buffer, int size) {
 					return false;
 					break;
 				}
-				case WAIT_OBJECT_0: {
+				case WAIT_OBJECT_0: { 
 					if (event & EV_RXCHAR) {
 						DWORD read = 0;
 						memset(raw_frame, 0, sizeof(raw_frame));
@@ -154,10 +207,10 @@ bool Input::ReadJVS(uint8_t* buffer, int size) {
 	wcscat_s(ltext, sizeof(ltext), L"\r\n");
 	LogEvent(log_file_handle_, ltext, wcslen(ltext));
 #endif
-	if ((bytes_read > 2) && (bytes_read == raw_frame[2] + 3)) { // add 3 to payload length at byte 2 to account for sync/destination/checksum packet 
+	if ((bytes_read > 2) && (bytes_read >= raw_frame[2] + 3)) { // add 3 to payload length at byte 2 to account for sync/destination/checksum packet 
 		if (raw_frame[0] == static_cast<uint8_t>(JVS_OPCODES_SYNC)) {
 			if (raw_frame[1] == 0) { // destination will always be 0
-				if (raw_frame[3] != JVS_OPCODES_OK || raw_frame[4] != JVS_OPCODES_OK) { // check for OK opcodes
+				if ((raw_frame[3] != JVS_OPCODES_OK && raw_frame[3] != JVS_OPCODES_COIN_OK) || (raw_frame[4] != JVS_OPCODES_OK && raw_frame[4] != JVS_OPCODES_COIN_OK)) { // check for OK opcodes
 					LogEvent(log_file_handle_, ltext, swprintf_s(ltext, sizeof(ltext) / sizeof(wchar_t), L"ReadJVS - jdata[0] JVS NOT OK!\r\n"));
 					return false;
 				}
@@ -173,15 +226,27 @@ bool Input::ReadJVS(uint8_t* buffer, int size) {
 				int i = 3;
 				int j = 0;
 				bool escape_code = false;
+				bool escape_checksum = false;
+				int received_checksum = 0;
 
 				for (i = 3; i < bytes_read - 1; ++i) { // confirm checksum and do conversions for escape codes
-					if (raw_frame[i] == static_cast<uint8_t>(JVS_OPCODES_ESCAPE))
+					if (raw_frame[i] == static_cast<uint8_t>(JVS_OPCODES_ESCAPE)) {
 						escape_code = true;
+						escape_checksum = true;
+					}
 					else if (escape_code) {
-						buffer[j] = raw_frame[i] + 1;
-						checksum += raw_frame[i] + 1;
-						escape_code = false;
-						++j;
+						if (raw_frame[i] == static_cast<uint8_t>(0xDF)) {
+							buffer[j] = static_cast<uint8_t>(0xE0);
+							checksum += static_cast<uint8_t>(0xE0);
+							escape_code = false;
+							++j;
+						}
+						else {
+							buffer[j] = static_cast<uint8_t>(0xD0);
+							checksum += static_cast<uint8_t>(0xD0);
+							escape_code = false;
+							++j;
+						}
 					}
 					else {
 						buffer[j] = raw_frame[i];
@@ -189,8 +254,23 @@ bool Input::ReadJVS(uint8_t* buffer, int size) {
 						++j;
 					}
 				}
-				int received_checksum = raw_frame[i];
-				++j;
+				if (escape_checksum) {
+					if (raw_frame[i] == static_cast<uint8_t>(0xDF)) {
+						received_checksum = static_cast<uint8_t>(0xE0);
+						escape_checksum = false;
+						++j;
+					}
+					else {
+						received_checksum = static_cast<uint8_t>(0xD0);
+						escape_checksum = false;
+						++j;
+					}
+				} 
+				else {
+					received_checksum = raw_frame[i];
+					++j;
+				}
+
 
 				if (j != received_size) {
 					if (log_error_)
@@ -198,7 +278,7 @@ bool Input::ReadJVS(uint8_t* buffer, int size) {
 					return false;
 				}
 
-				if (checksum % 256 != received_checksum) {
+				/*if (checksum % 256 != received_checksum) {
 					if (log_error_) {
 						LogEvent(log_file_handle_, ltext, swprintf_s(ltext, sizeof(ltext) / sizeof(wchar_t), L"ReadJVS - Bad checksum! %02x != %02x\r\n", checksum % 256, received_checksum));
 						LogEvent(log_file_handle_, ltext, swprintf_s(ltext, sizeof(ltext) / sizeof(wchar_t), L"ReadJVS - Raw frame:\r\n\t"));
@@ -224,7 +304,7 @@ bool Input::ReadJVS(uint8_t* buffer, int size) {
 						LogEvent(log_file_handle_, ltext, wcslen(ltext));
 					}
 					return false;
-				}
+				}*/
 #ifdef DEBUG
 				LogEvent(log_file_handle_, ltext, swprintf_s(ltext, sizeof(ltext) / sizeof(wchar_t), L"ReadJVS - Payload:\r\n\t"));
 				memset(ltext, 0, sizeof(ltext));

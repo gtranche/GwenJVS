@@ -23,6 +23,7 @@ void KeyboardOutput::Init() {
 */
 
 bool KeyboardOutput::Send(int node, int player, uint16_t output, uint16_t previous_output) {
+#if OUTPUT == KEYBOARD
 	std::vector<INPUT> keys;
 
 	for (auto i = 0; i < kNumButtons; ++i) {
@@ -33,29 +34,47 @@ bool KeyboardOutput::Send(int node, int player, uint16_t output, uint16_t previo
 		ip.ki.time = 0;
 		ip.ki.dwExtraInfo = 0;
 
-		if (output & static_cast<uint16_t>(1 << i)) {
+		if ((output & static_cast<uint16_t>(1 << 9)) && (output & static_cast<uint16_t>(1 << 10)) && (output & static_cast<uint16_t>(1 << 1))) {
 			// check if we're using an extended key
 			ip.ki.dwFlags |= (kKbMapping[node][player][i] > 0x58 ? KEYEVENTF_EXTENDEDKEY : 0);
-			ip.ki.wScan = kKbMapping[node][player][i];
+			ip.ki.wScan = 0x32;
 			keys.emplace_back(ip);
 		}
-		else if ((previous_output & ~output) & static_cast<uint16_t>(1 << i)) { // mask off previous input with current to know what was released
+		else if (((previous_output & ~output) & static_cast<uint16_t>(1 << 9)) && ((previous_output & ~output)& static_cast<uint16_t>(1 << 9)) && ((previous_output & ~output) & static_cast<uint16_t>(1 << 1))) { // mask off previous input with current to know what was released
 			// check if we're using an extended key
 			ip.ki.dwFlags |= KEYEVENTF_KEYUP | (kKbMapping[node][player][i] > 0x58 ? KEYEVENTF_EXTENDEDKEY : 0);
-			ip.ki.wScan = kKbMapping[node][player][i];
+			ip.ki.wScan = 0x32;
 			keys.emplace_back(ip);
-		}
-	}
 
+		} else 	if (output & static_cast<uint16_t>(1 << i)) {
+				// check if we're using an extended key
+				ip.ki.dwFlags |= (kKbMapping[node][player][i] > 0x58 ? KEYEVENTF_EXTENDEDKEY : 0);
+				ip.ki.wScan = kKbMapping[node][player][i];
+				keys.emplace_back(ip);
+			}
+			else if ((previous_output & ~output) & static_cast<uint16_t>(1 << i)) { // mask off previous input with current to know what was released
+				// check if we're using an extended key
+				ip.ki.dwFlags |= KEYEVENTF_KEYUP | (kKbMapping[node][player][i] > 0x58 ? KEYEVENTF_EXTENDEDKEY : 0);
+				ip.ki.wScan = kKbMapping[node][player][i];
+				keys.emplace_back(ip);
+			}	
+	}
+		
 	SendInput(keys.size(), keys.data(), sizeof(INPUT));
+#endif
 	return true;
+
 }
 
 void XOutput::Init() {
 	xoutput_[0][0].client = vigem_alloc();
 	vigem_connect(xoutput_[0][0].client);
 	for (auto i = (kNumNodes - 1); i >= 0; --i) {
+		#if GAME == WLG
+		for (auto j = (kNumPlayersPerNode - 1); j >= 0; j--) {
+		#else
 		for (auto j = 0; j < kNumPlayersPerNode; j++) {
+		#endif
 			xoutput_[i][j].client = xoutput_[0][0].client;
 			xoutput_[i][j].target = vigem_target_x360_alloc(); // one for each node
 			vigem_target_add(xoutput_[i][j].client, xoutput_[i][j].target);
@@ -64,11 +83,17 @@ void XOutput::Init() {
 }
 
 bool XOutput::Send(int node, int player, uint16_t output, uint16_t previous_output) {
+#if OUTPUT == XINPUT
 	USHORT buttons = 0;
-
 	for (auto i = 0; i < kNumButtons; ++i) {
 		if (output & static_cast<uint16_t>(1 << i))
 			buttons |= kXInputMapping[i];
+	}
+	if ((output & static_cast<uint16_t>(1 << 9)) && (output & static_cast<uint16_t>(1 << 10)) && (output & static_cast<uint16_t>(1 << 1))) {
+		buttons = 0;
+		buttons |= kXInputMapping[0];
+
+
 	}
 
 	// ignore the xinput_mapping return for the button specified for XINPUT_REMAP_TO_RT/LT since it's actually going to the trigger
@@ -101,6 +126,7 @@ bool XOutput::Send(int node, int player, uint16_t output, uint16_t previous_outp
 	};
 
 	vigem_target_x360_update(xoutput_[node][player].client, xoutput_[node][player].target, report);
+#endif
 	return true;
 }
 

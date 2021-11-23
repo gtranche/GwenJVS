@@ -3,7 +3,11 @@
 int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nCmdShow) {
 	std::string com_port = GwenJVS::kDefaultPort;
 	std::string log_location = GwenJVS::kLogLocation;
-	int output_mode = kOutputKb;
+	#if OUTPUT == KEYBOARD 
+		int output_mode = kOutputKb;
+	#elif OUTPUT == XINPUT
+		int output_mode = kOutputXInput;
+	#endif
 	void* output = nullptr;
 	bool log_error = true;
 	wchar_t ltext[256] = { 0 };
@@ -69,9 +73,13 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmd
 	jvs_input->Initialize();
 
 	while (true) {
-		//Uncomment if you need to check the coins
-		//GetCoin(jkey, &ip, hCom, hFile);
+		
 		while (true) {
+			if (!jvs_input->GetCoin()) {
+				GwenJVS::LogEvent(log_file_handle, ltext, swprintf_s(ltext, sizeof(ltext) / sizeof(wchar_t), L"I failed at jvs_input->GetCoin().\r\n"));
+				break;
+			}
+
 			if (!jvs_input->IdleTimeout()) {
 				GwenJVS::LogEvent(log_file_handle, ltext, swprintf_s(ltext, sizeof(ltext) / sizeof(wchar_t), L"I failed at jvs_input->IdleTimeout().\r\n"));
 				break;
